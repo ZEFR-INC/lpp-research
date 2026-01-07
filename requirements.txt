@@ -1,0 +1,10 @@
+pandas==2.1.4
+numpy==1.26.4
+structlog==25.5.0
+scikit-learn==1.8.0
+matplotlib==3.10.0
+xgboost==3.1.2
+scipy==1.16.3
+statsmodels==0.14.6
+seaborn==0.13.2
+imblearn==0.0
