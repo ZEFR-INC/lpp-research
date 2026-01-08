@@ -1,0 +1,19 @@
+name: "Close stale PRs"
+on:
+  schedule:
+    - cron: "0 16 * * *" # 8am PST
+  workflow_dispatch:
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v8
+        with:
+          stale-pr-message: "This pull request has been inactive for 14 days and labeled no-pr-activity. Remove this label or apply WIP or hold-merge labels to prevent auto-closure in 180 days."
+          close-pr-message: "This PR was closed because it has been stalled for 180 days with no activity."
+          days-before-stale: 14
+          days-before-close: 180
+          exempt-pr-labels: "WIP,hold-merge"
+          stale-pr-label: "no-pr-activity"
+          operations-per-run: 2000 # The default is 30, increased to ensure all PRs are checked. 2000 operations cover ~1000 PRs.
