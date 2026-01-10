@@ -30,7 +30,12 @@ from sklearn.metrics import (
     log_loss,
     roc_auc_score,
 )
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold
+from sklearn.model_selection import (
+    GridSearchCV,
+    RandomizedSearchCV,
+    StratifiedKFold,
+    train_test_split,
+)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 from typing import Any, Dict, List, Optional, Tuple
@@ -132,7 +137,7 @@ class MetaModelConfig:
         verbose: Verbosity level for training
     """
 
-    cost_misclassification: float = 0.94
+    cost_misclassification: float = 1
     cost_human_review: float = 0.64
     n_cv_folds: int = 3
     random_state: int = 42
@@ -410,9 +415,8 @@ class MetaModelPipeline:
         # Get predicted probabilities
         y_val_probs = model.predict_proba(X_val)[:, 1]
 
-        # Generate candidate thresholds
-        thresholds = np.unique(y_val_probs)
-        thresholds = np.concatenate(([-np.inf], thresholds, [np.inf]))
+        # Generate candidate thresholds between 0.35 to 0.7
+        thresholds = np.linspace(0.35, 0.7, num=100)
 
         min_cost = float("inf")
         best_threshold = 0.5
@@ -483,7 +487,13 @@ class MetaModelPipeline:
             Tuple of (default_threshold_result, tuned_threshold_result)
         """
         logger.info("Starting experiment", name=config["name"])
-
+        X_tr, X_val, y_tr, y_val = train_test_split(
+            X_train,
+            y_train,
+            test_size=0.2,
+            stratify=y_train,
+            random_state=self.config.random_state,
+        )
         # Create pipeline
         pipeline = self._create_pipeline(
             clone(config["model"]), config["feature_selector"]
@@ -515,30 +525,28 @@ class MetaModelPipeline:
             search_params["param_grid"] = config.get("param_grid", {})
             SearchClass = GridSearchCV
 
-        # Fit model
+        # Fit model on inner train split
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             search = SearchClass(**search_params)
-            search.fit(X_train, y_train)
+            search.fit(X_tr, y_tr)
 
         if not hasattr(search, "best_estimator_") or search.best_estimator_ is None:
             raise ValueError("Search did not complete; no best estimator found")
 
         best_pipe = search.best_estimator_
 
-        # Variant A: Default threshold (0.5)
+        # -------- Variant A: Default threshold (0.5)
         if _has_predict_proba(best_pipe):
-            default_val_pred = (best_pipe.predict_proba(X_test)[:, 1] >= 0.5).astype(
-                int
-            )
+            default_val_pred = (best_pipe.predict_proba(X_val)[:, 1] >= 0.5).astype(int)
             default_validation_cost = self._business_cost_scorer(
-                y_test, default_val_pred
+                y_val, default_val_pred
             )
             default_threshold = 0.5
         else:
-            default_val_pred = best_pipe.predict(X_test)
+            default_val_pred = best_pipe.predict(X_val)
             default_validation_cost = self._business_cost_scorer(
-                y_test, default_val_pred
+                y_val, default_val_pred
             )
             default_threshold = 0.5
 
@@ -559,9 +567,9 @@ class MetaModelPipeline:
             X_train_cols=X_train.columns if hasattr(X_train, "columns") else None,
         )
 
-        # Variant B: Tuned threshold
+        # -------- Variant B: Tuned threshold
         opt_threshold, validation_cost = self._find_optimal_threshold(
-            best_pipe, X_test, y_test
+            best_pipe, X_val, y_val
         )
 
         res_tuned = self._make_result(
@@ -581,9 +589,9 @@ class MetaModelPipeline:
         logger.info(
             "Experiment complete",
             name=config["name"],
-            default_test_cost=round(res_default.test_cost, 4),
-            tuned_test_cost=round(res_tuned.test_cost, 4),
-            threshold=round(opt_threshold, 4),
+            default_val_cost=round(float(default_validation_cost), 4),
+            tuned_val_cost=round(float(validation_cost), 4),
+            tuned_threshold=round(float(opt_threshold), 4),
         )
 
         return res_default, res_tuned
@@ -758,7 +766,7 @@ class MetaModelPipeline:
                 res_default, res_tuned = self.train_single_experiment(
                     config, X_train, y_train, X_test, y_test
                 )
-                self.results.extend([res_default])
+                self.results.extend([res_tuned])
             except Exception as e:
                 logger.error(
                     "Experiment failed",
