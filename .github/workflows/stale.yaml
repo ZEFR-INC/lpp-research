@@ -4,11 +4,16 @@ on:
     - cron: "0 16 * * *" # 8am PST
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   stale:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
     steps:
-      - uses: actions/stale@v8
+      - uses: actions/stale@1160a2240286f5da8ec72b1c0816ce2481aabf84 # v8
         with:
           stale-pr-message: "This pull request has been inactive for 14 days and labeled no-pr-activity. Remove this label or apply WIP or hold-merge labels to prevent auto-closure in 180 days."
           close-pr-message: "This PR was closed because it has been stalled for 180 days with no activity."
